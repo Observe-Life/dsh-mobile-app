@@ -40,10 +40,13 @@ jobs:
               exit 1
             fi
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/dsh-release.keystore"
-            openssl pkcs12 -info -in "$RUNNER_TEMP/dsh-release.keystore" -passin "pass:$KEYSTORE_PASS" -nokeys 2>/dev/null \
-              && echo '[signing] using fixed PKCS12 keystore from repository secret' \
-              || { echo '::error::keystore 解码后校验失败（base64 损坏或密码不符）'; exit 1; }
+            keytool -list -keystore "$RUNNER_TEMP/dsh-release.keystore" -storepass "$KEYSTORE_PASS" >/dev/null 2>&1 \
+              && echo '[signing] using fixed keystore from repository secret' \
+              || { echo '::error::密钥库校验失败（base64 损坏或密码不符）'; exit 1; }
           else
+            # 备用路径：无 Secret 时用 keytool 现场生成（Java 原生格式，必定可读），
+            # 并把 keystore 作为工件上传——一次性引导：取回工件设为 KEYSTORE_BASE64
+            # 即固定签名。之后每次构建都用同一把，升级可覆盖安装。
             keytool -genkeypair -v \
               -keystore "$RUNNER_TEMP/dsh-release.keystore" \
               -alias dsh -keyalg RSA -keysize 2048 -validity 10000 \
@@ -58,13 +61,14 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
 
-      # 诊断（临时）：确认密码在 GITHUB_ENV 往返后长度不变、keytool 能用同一密码开库
-      - name: Debug signing env
-        run: |
-          echo "KEYSTORE_PASS length: ${#KEYSTORE_PASS}"
-          echo "runner pass sha256: $(printf '%s' "$KEYSTORE_PASS" | sha256sum | cut -c1-16)..."
-          echo "runner p12 sha256: $(sha256sum "$KEYSTORE_FILE" | cut -c1-16)..."
-          keytool -list -keystore "$KEYSTORE_FILE" -storetype PKCS12 -storepass "$KEYSTORE_PASS" 2>&1 | head -4
+      # 引导通道：备用分支生成的 keystore 上传为工件（取回后设为 KEYSTORE_BASE64 即固定）
+      - name: Upload keystore artifact
+        if: env.KEYSTORE_FILE != '' && env.KEYSTORE_BASE64 == ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-keystore
+          path: ${{ runner.temp }}/dsh-release.keystore
+          retention-days: 1
 
       - name: Build release APK
         run: gradle assembleRelease
