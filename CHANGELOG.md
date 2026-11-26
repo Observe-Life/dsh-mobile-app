@@ -4,8 +4,9 @@
 
 ### 新增
 - 双通道自动选：家庭 WiFi 直连优先，不通自动经固定域名 DoH 反查 Cloudflare 隧道
-- 自动登录：检测到 DSH 登录插件 `/login` 页面自动填表提交，凭据 Keystore 加密存储，
-  30 天 Cookie 过期无感重登
+  （反查只用阿里 DoH，用户裁决）
+- 登录完全交给 DSH 登录插件：App 不存任何账号密码（用户裁决，拆除自动登录与
+  凭据存储），首次与每 30 天在插件页面手登一次，Cookie 在 WebView 内持久化
 - 文件上传：实现 WebView 文件选择桥接——拍照（FileProvider）/ 相册 / 文件
 - 文件下载：系统下载管理器 + 网页 blob 下载 JS 桥接，落盘「下载」目录
 - 服务器端三合一容器 `server/container/`：域名改写代理 + Cloudflare 快速隧道 +

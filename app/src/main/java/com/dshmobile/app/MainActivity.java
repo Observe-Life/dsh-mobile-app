@@ -11,11 +11,9 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.SystemClock;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
-import android.view.View;
 import android.view.Window;
 import android.webkit.JavascriptInterface;
 import android.webkit.SslErrorHandler;
@@ -57,17 +55,15 @@ import javax.net.ssl.X509TrustManager;
  * DSH Remote —— DeepSeek Harness 手机端壳应用（个人版，双通道）。
  *
  * 连接策略：先探测「家庭局域网直连」地址（快），不通则用固定域名经 DoH 反查
- * Cloudflare 快速隧道地址（公网）。认证由服务器上的 DSH 登录插件承担：
- * 检测到 /login 页面自动填表登录（凭据存 Android Keystore 加密存储，30 天
- * Cookie 过期后无感重登）。
+ * Cloudflare 快速隧道地址（公网）。登录验证完全由服务器上的 DSH 登录插件承担：
+ * 用户在其 /login 页面手填账号密码（官方协议 Cookie 30 天，WebView 内持久化），
+ * App 不存储、不经手任何凭据。
  */
 public class MainActivity extends Activity {
 
     private static final String PREFS = "dsh";
     private static final String KEY_LAN = "lan_url";
     private static final String KEY_DOMAIN = "tunnel_domain";
-    private static final String KEY_USER = "user";
-    private static final String KEY_PASS = "pass";
     private static final String KEY_LAN_PIN = "lan_cert_pin";
     private static final int REQ_FILE = 41;
 
@@ -77,8 +73,6 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCallback;
     private Uri cameraUri;
     private long lastConnectAt = 0L;
-    private int autoLoginBudget = 3;
-    private long lastPinRecordedAt = Long.MIN_VALUE / 2;
     private String activeTunnelHost = null;
 
     @Override
@@ -88,7 +82,8 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
 
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        migrateLegacyPassword();
+        // 一次性清理旧版残留的孤儿凭据（自动登录时代的 Keystore 密文，现已无读取方）
+        prefs.edit().remove("user").remove("pass").apply();
         web = findViewById(R.id.web);
         connStatus = findViewById(R.id.connStatus);
 
@@ -134,10 +129,6 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 connStatus.setText("已连接");
-                if (url == null || !url.endsWith("/login")) {
-                    autoLoginBudget = 3; // 离开登录页即重置自动登录预算
-                }
-                autoLoginIfOnLoginPage(url);
             }
 
             @Override
@@ -287,31 +278,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ── 自动登录：检测到 /login 页面就替用户提交（凭据来自加密存储） ────────────────
-
-    private void autoLoginIfOnLoginPage(String url) {
-        if (url == null || !url.endsWith("/login")) return;
-        // 来源门禁：只对可信来源（配置的局域网地址 / 当前隧道地址）的登录页自动提交，
-        // 防止页面里指向外部的可疑链接把存的密码发给陌生站点
-        if (!isTrustedPageOrigin(url)) return;
-        // 首次接触（证书指纹刚记录，无法排除敌意局域网伪装）不自动提交凭据，
-        // 让用户手登一次；指纹录入满 60 秒后的后续接触才自动提交。
-        // 用时间窗口而非页面标记：登录前的 302 跳转会重置页面级标记，击穿防线。
-        if (SystemClock.elapsedRealtime() - lastPinRecordedAt < 60_000) return;
-        // 纵深防御：自动登录有预算上限（防登录插件将来把失败也改成重定向导致的循环重提交）
-        if (autoLoginBudget <= 0) return;
-        String user = prefs.getString(KEY_USER, "dsh");
-        String pass = CredentialStore.decrypt(prefs.getString(KEY_PASS, ""));
-        if (pass.isEmpty()) return;
-        autoLoginBudget--;
-        // 与登录页自身的无痕登录同款：POST 成功（303 → opaqueredirect）后原地跳回首页；
-        // 失败（401 带错误提示的登录页）时不动作，让用户看到错误并可手改。
-        String js = "(async () => { try { const r = await fetch('/login', { method: 'POST', redirect: 'manual',"
-                + " body: new URLSearchParams({ user: " + JSONObject.quote(user) + ", pass: " + JSONObject.quote(pass) + " }) });"
-                + " if (r.type === 'opaqueredirect') { location.replace('./'); return 'ok' } return 'bad' } catch (e) { return 'err' } })()";
-        web.evaluateJavascript(js, null);
-    }
-
     // ── 文件选择（含拍照） ────────────────────────────────────────────────────────
 
     private Intent cameraIntent(WebChromeClient.FileChooserParams params) {
@@ -457,15 +423,8 @@ public class MainActivity extends Activity {
         domain.setHint("固定域名，如 your-domain.de5.net（公网通道）");
         domain.setSingleLine(true);
 
-        EditText user = new EditText(this);
-        user.setHint("用户名");
-        user.setSingleLine(true);
-
-        EditText pass = new EditText(this);
-        pass.setHint("密码（已保存，留空则不修改）");
-        pass.setSingleLine(true);
-
-        // 不回填已存值：公开截图不泄露私人地址与凭据；留空保存=保留原值
+        // 不回填已存值：公开截图不泄露私人地址；留空保存=保留原值
+        // 登录不在这里：账号密码只在你插件提供的登录页上输入（每 30 天一次）
         String oldLan = prefs.getString(KEY_LAN, "");
         String oldDomain = prefs.getString(KEY_DOMAIN, "");
         if (!oldLan.isEmpty()) lan.setHint("家庭直连地址（已配置，留空保留）");
@@ -473,8 +432,6 @@ public class MainActivity extends Activity {
 
         ll.addView(lan);
         ll.addView(domain);
-        ll.addView(user);
-        ll.addView(pass);
 
         new AlertDialog.Builder(this)
                 .setTitle("DSH 服务器设置")
@@ -482,16 +439,9 @@ public class MainActivity extends Activity {
                 .setPositiveButton("保存并连接", (d, w) -> {
                     String newLan = normalizeLanUrl(lan.getText().toString().trim());
                     String newDomain = normalizeDomain(domain.getText().toString().trim());
-                    String newUser = user.getText().toString().trim();
-                    String newPass = pass.getText().toString();
-                    String oldUser = prefs.getString(KEY_USER, "dsh");
-                    String oldPass = CredentialStore.decrypt(prefs.getString(KEY_PASS, ""));
-                    String encPass = CredentialStore.encrypt(newPass.isEmpty() ? oldPass : newPass);
                     prefs.edit()
                             .putString(KEY_LAN, newLan.isEmpty() ? oldLan : newLan)
                             .putString(KEY_DOMAIN, newDomain.isEmpty() ? oldDomain : newDomain)
-                            .putString(KEY_USER, newUser.isEmpty() ? oldUser : newUser)
-                            .putString(KEY_PASS, encPass == null ? "" : encPass)
                             // 用户主动保存 = 主动重新信任：清掉局域网证书指纹，下次接触重录（TOFU 重钉的唯一入口）
                             .remove(KEY_LAN_PIN)
                             .apply();
@@ -502,14 +452,6 @@ public class MainActivity extends Activity {
     }
 
     // ── 杂项 ──────────────────────────────────────────────────────────────────────
-
-    private void migrateLegacyPassword() {
-        String p = prefs.getString(KEY_PASS, "");
-        if (!p.isEmpty() && !CredentialStore.isEncrypted(p)) {
-            String enc = CredentialStore.encrypt(p);
-            if (enc != null) prefs.edit().putString(KEY_PASS, enc).apply();
-        }
-    }
 
     /** 通过阿里 DoH 查固定域名的 CNAME/TXT，提取当前隧道域名（与原项目一致，仅此一源）。 */
     private String dohResolve(String host) {
@@ -553,7 +495,7 @@ public class MainActivity extends Activity {
         return s;
     }
 
-    /** 局域网证书钉扎（TOFU）：首录指纹，之后指纹一致才放行；首次接触返回 true 但标记「本次刚钉」。 */
+    /** 局域网证书钉扎（TOFU）：首录指纹，之后指纹一致才放行。 */
     private boolean lanCertTrusted(android.net.http.SslError error) {
         try {
             // SslCertificate → 标准 X509Certificate（API 21+；本应用 minSdk 26）
@@ -567,7 +509,6 @@ public class MainActivity extends Activity {
             String stored = prefs.getString(KEY_LAN_PIN, "");
             if (stored.isEmpty()) {
                 prefs.edit().putString(KEY_LAN_PIN, fp).apply();
-                lastPinRecordedAt = SystemClock.elapsedRealtime();
                 return true;
             }
             return stored.equals(fp);
