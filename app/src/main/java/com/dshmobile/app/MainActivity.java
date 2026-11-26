@@ -546,7 +546,10 @@ public class MainActivity extends Activity {
     /** 局域网证书钉扎（TOFU）：首录指纹，之后指纹一致才放行；首次接触返回 true 但标记「本次刚钉」。 */
     private boolean lanCertTrusted(android.net.http.SslError error) {
         try {
-            byte[] der = error.getCertificate().getEncoded();
+            // SslCertificate → 标准 X509Certificate（API 21+；本应用 minSdk 26）
+            java.security.cert.X509Certificate cert = error.getCertificate().getX509Certificate();
+            if (cert == null) return false;
+            byte[] der = cert.getEncoded();
             byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(der);
             StringBuilder sb = new StringBuilder();
             for (byte b : digest) sb.append(String.format("%02x", b));
