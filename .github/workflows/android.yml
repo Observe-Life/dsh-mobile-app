@@ -62,8 +62,8 @@ jobs:
       - name: Debug signing env
         run: |
           echo "KEYSTORE_PASS length: ${#KEYSTORE_PASS}"
-          echo "KEYSTORE_FILE: $KEYSTORE_FILE"
-          ls -la "$KEYSTORE_FILE"
+          echo "runner pass sha256: $(printf '%s' "$KEYSTORE_PASS" | sha256sum | cut -c1-16)..."
+          echo "runner p12 sha256: $(sha256sum "$KEYSTORE_FILE" | cut -c1-16)..."
           keytool -list -keystore "$KEYSTORE_FILE" -storetype PKCS12 -storepass "$KEYSTORE_PASS" 2>&1 | head -4
 
       - name: Build release APK
