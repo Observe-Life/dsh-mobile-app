@@ -434,10 +434,19 @@ public class MainActivity extends Activity {
     // ── 服务器设置 ────────────────────────────────────────────────────────────────
 
     private void showSettings() {
+        // 教训：AlertDialog 同时 setMessage + setView 时自定义视图（输入框）会被
+        // 系统静默丢弃（安卓 14 控件树实证，弹窗只剩标题/说明/按钮）。所以说明
+        // 文字必须并进自定义视图，只用 setView。
         LinearLayout ll = new LinearLayout(this);
         ll.setOrientation(LinearLayout.VERTICAL);
         int pad = (int) (20 * getResources().getDisplayMetrics().density);
-        ll.setPadding(pad, pad / 2, pad, 0);
+        ll.setPadding(pad, pad, pad, 0);
+
+        TextView hint = new TextView(this);
+        hint.setText("两条通道：家庭 WiFi 直连地址优先；在外面自动走固定域名反查隧道。\n留空的项保留原值。");
+        hint.setTextSize(14);
+        hint.setPadding(0, 0, 0, (int) (12 * getResources().getDisplayMetrics().density));
+        ll.addView(hint);
 
         EditText lan = new EditText(this);
         lan.setHint("家庭直连地址，如 https://192.168.1.10:3080（可留空）");
@@ -468,7 +477,7 @@ public class MainActivity extends Activity {
 
         new AlertDialog.Builder(this)
                 .setTitle("DSH 服务器设置")
-                .setMessage("两条通道：家庭 WiFi 直连地址优先；在外面自动走固定域名反查隧道。\n留空的项保留原值。")
+                .setView(ll)
                 .setPositiveButton("保存并连接", (d, w) -> {
                     String newLan = normalizeLanUrl(lan.getText().toString().trim());
                     String newDomain = normalizeDomain(domain.getText().toString().trim());

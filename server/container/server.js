@@ -121,8 +121,8 @@ server.listen(LISTEN_PORT, '0.0.0.0', () => {
 })
 
 // ── 3) DNSHE 固定域名同步 ──────────────────────────────────────────────────────
-async function dnshe(action, body) {
-  const res = await fetch(`${DNSHE_API}&action=${action}`, {
+async function dnshe(action, body, query = '') {
+  const res = await fetch(`${DNSHE_API}&action=${action}${query}`, {
     method: body ? 'POST' : 'GET',
     headers: { 'X-API-Key': DNSHE_KEY, 'X-API-Secret': DNSHE_SECRET, 'content-type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
@@ -136,7 +136,8 @@ async function syncDnshe(cname) {
     return true
   }
   try {
-    const list = await dnshe('list', null).then((j) => j, (e) => ({ success: false, message: [String(e)] }))
+    // dns_records/list 必须带 subdomain_id，否则 API 回网页而非 JSON
+    const list = await dnshe('list', null, `&subdomain_id=${SUBDOMAIN_ID}`).then((j) => j, (e) => ({ success: false, message: [String(e)] }))
     if (!list?.success) {
       log('DNSHE 记录列表获取失败: ' + JSON.stringify(list?.message ?? list))
       return false
