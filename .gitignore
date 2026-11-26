@@ -9,5 +9,5 @@ captures/
 .externalNativeBuild/
 .cxx/
 
-# 密钥文件（勿提交）
-server/tools/dsh-config.txt
+# 服务器容器部署的真实密钥（.env 不进 git，样例进）
+server/container/.env

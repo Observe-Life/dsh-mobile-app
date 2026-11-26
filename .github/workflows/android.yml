@@ -28,27 +28,38 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      # 生成 release 签名 keystore——注意：每次构建都是新生成的一把（RUNNER_TEMP 每次
-      # 全新），签名每次不同，升级需先卸载旧版（README 已注明）。如要实现"固定签名
-      # 覆盖升级"，需把 keystore 持久化到仓库 Secret 而非运行时生成。
-      # 密码来自仓库 Secret KEYSTORE_PASS（公开仓库也不会泄露）
-      - name: Generate release keystore
+      # 固定签名：签名密钥由仓库 Secret KEYSTORE_BASE64（keystore 的 base64，必须
+      # 是 PKCS12 格式——build.gradle 里 storeType 固定 PKCS12）与 KEYSTORE_PASS 提供，
+      # 升级可覆盖安装。缺 Secret 时退回一次性生成的临时 keystore（该次 APK 只能
+      # 全新安装，不能覆盖升级）。
+      - name: Restore release keystore
         run: |
-          keytool -genkeypair -v \
-            -keystore "$RUNNER_TEMP/dsh-release.keystore" \
-            -alias dsh -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass "$KEYSTORE_PASS" -keypass "$KEYSTORE_PASS" \
-            -dname "CN=DSH Mobile, OU=Personal, O=Personal, L=City, ST=State, C=CN"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            if [ -z "$KEYSTORE_PASS" ]; then
+              echo '::error::KEYSTORE_BASE64 已配置但 KEYSTORE_PASS 为空——签名必然失败，请补齐 Secret'
+              exit 1
+            fi
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/dsh-release.keystore"
+            openssl pkcs12 -info -in "$RUNNER_TEMP/dsh-release.keystore" -passin "pass:$KEYSTORE_PASS" -nokeys 2>/dev/null \
+              && echo '[signing] using fixed PKCS12 keystore from repository secret' \
+              || { echo '::error::keystore 解码后校验失败（base64 损坏或密码不符）'; exit 1; }
+          else
+            keytool -genkeypair -v \
+              -keystore "$RUNNER_TEMP/dsh-release.keystore" \
+              -alias dsh -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$KEYSTORE_PASS" -keypass "$KEYSTORE_PASS" \
+              -dname "CN=DSH Mobile, OU=Personal, O=Personal, L=City, ST=State, C=CN"
+            echo '[signing] WARNING: no KEYSTORE_BASE64 secret, keystore is ephemeral'
+          fi
+          echo "KEYSTORE_FILE=$RUNNER_TEMP/dsh-release.keystore" >> "$GITHUB_ENV"
+          echo "KEYSTORE_PASS=$KEYSTORE_PASS" >> "$GITHUB_ENV"
+          echo "KEY_ALIAS=dsh" >> "$GITHUB_ENV"
         env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
 
       - name: Build release APK
         run: gradle assembleRelease
-        env:
-          KEYSTORE_FILE: ${{ runner.temp }}/dsh-release.keystore
-          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
-          KEY_ALIAS: dsh
-          KEY_PASS: ${{ secrets.KEYSTORE_PASS }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
@@ -56,20 +67,13 @@ jobs:
           name: dsh-mobile-apk
           path: app/build/outputs/apk/release/app-release.apk
 
-      - name: Upload keystore (keep for future updates)
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-keystore
-          path: ${{ runner.temp }}/dsh-release.keystore
-
-      # 每次构建成功都自动发布到 Releases 页：用户始终可通过 Release 下载最新 APK
-      # 使用带版本号的 APK 文件名，避免下载管理器/文件管理器因同名文件缓存旧图标
+      # 每次构建成功自动发布到 Releases：固定版本号命名防下载缓存旧包
       - name: Publish GitHub Release
         run: |
           VERSION="v$(date +%Y%m%d-%H%M%S)"
           cp app/build/outputs/apk/release/app-release.apk "DSH-Remote-$VERSION.apk"
           gh release create "$VERSION" "DSH-Remote-$VERSION.apk" \
             --title "DSH Remote ${{ github.run_number }}" \
-            --notes "Android APK — 手机直接下载安装（需允许安装未知来源）"
+            --notes "Android APK — 手机直接下载安装"
         env:
           GH_TOKEN: ${{ github.token }}

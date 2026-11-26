@@ -1,0 +1,24 @@
+# 部署样例：复制到服务器 /vol1/docker/dsh-mobile-tunnel/，改名为 docker-compose.yml，
+# 同目录建 .env（真实密钥不进 git）。启动：docker compose up -d --build
+services:
+  dsh-mobile-tunnel:
+    build: .
+    image: dsh-mobile-tunnel:local
+    container_name: dsh-mobile-tunnel
+    restart: unless-stopped
+    environment:
+      LISTEN_PORT: "8082"
+      # DSH web 的监听地址（准入栅栏认可的权威，Host/Origin 改写成它）。
+      # 按你的 DSH 实际监听地址填，如 https://<DSH容器IP>:3080
+      UPSTREAM: "${UPSTREAM}"
+      TUNNEL_ENABLED: "1"
+      DNSHE_DOMAIN: "${DNSHE_DOMAIN}"
+      DNSHE_SUBDOMAIN_ID: "${DNSHE_SUBDOMAIN_ID}"
+      DNSHE_KEY: "${DNSHE_KEY}"
+      DNSHE_SECRET: "${DNSHE_SECRET}"
+    networks:
+      - backend
+
+networks:
+  backend:
+    external: true

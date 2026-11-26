@@ -1,94 +1,74 @@
-# DSH Remote —— Android 手机端壳应用
+# DSH Remote —— Android 手机端（个人版）
 
-DeepSeek Harness 的手机客户端：全屏 WebView 加载你自己电脑上 DSH 的 `/mobile` 界面。
-**通用客户端**：任何人下载后，填自己的服务器地址和账号密码即可连接自己的 DSH，
-不经过浏览器、不输入域名、密码自动携带。
-
-> 服务器端需要部署 [dsh-plugin-mobile-remote](https://github.com/hongshuxifan321/dsh-mobile-app)（含 `/mobile` 界面 + 认证代理 + 隧道脚本），见 [DEPLOY.md](./DEPLOY.md)。
-
-## PWA 通用客户端（iPhone / 鸿蒙 / 其他平台）
-
-除了 Android APK，本仓库还提供一个 **PWA 通用客户端**，适用于 iPhone、鸿蒙等无法直接安装 APK 的平台。
-
-- PWA 地址：<https://hongshuxifan321.github.io/dsh-mobile-app/pwa/>
-- 用户打开后填写自己的 DSH 服务器地址 / 用户名 / 密码即可连接
-- 支持裸域名自动发现隧道（如 `your-domain.de5.net`）
-- 支持深色 / 浅色切换
-- 密码仅保存在当前页面内存中，不持久化
-- 详细说明见 [`pwa/README.md`](./pwa/README.md)
-
+DeepSeek Harness 的个人安卓客户端：全屏 WebView 加载你自己服务器上的 DSH 网页，
+两条通道自动选——**家里 WiFi 直连（快），在外面自动走 Cloudflare 快速隧道（公网）**。
+认证由服务器上的 DSH 登录插件承担：填一次账号密码，之后包括每 30 天 Cookie
+过期都无感自动重登。
 
 ## 原理
 
 ```
-DSH Remote (Android WebView)
-   │  (自动携带 Basic Auth 凭证)
-   ▼
-https://<你的固定域名>/mobile   ← 你电脑上的 mobile-remote 认证代理
-   │
-   ▼
-127.0.0.1:3080  DSH web
+                ┌─ 家里 WiFi：手机 ──→ https://家庭地址:3080  DSH web（HTTPS + 登录插件）
+DSH Remote App ─┤
+                └─ 在外面：手机 → 隧道域名（DNS 反查自动发现）
+                        → Cloudflare 快速隧道
+                        → dsh-mobile-tunnel 容器（域名改写，过 DSH 准入栅栏）
+                        → DSH web
 ```
 
-- 支持两种地址：**固定域名**（如 `your-domain.de5.net`，App 自动通过 DNS 发现当前隧道）或
-  **完整地址**（如 `https://xxx.trycloudflare.com/mobile`）
-- WebView 原生支持 WebSocket → 审批弹窗、实时事件在手机端完全可用
-- 账号密码保存在手机本地设置，只填一次；**密码经 Android Keystore（系统安全硬件）加密存储**，
-  旧版明文密码首次启动自动迁移，升级无感
+- **双通道自动选**：先探测家庭直连地址，不通自动用固定域名（如 `xxx.de5.net`）
+  经阿里 DoH 反查当前隧道地址；
+- **自动登录**：检测到 `/login` 页面自动填表提交，凭据经 Android Keystore
+  （系统安全硬件）加密存储；
+- **文件上传**：DSH 页面的上传按钮可用——拍照 / 相册 / 文件；
+- **文件下载**：收到的成品文件一键存入系统「下载」目录（网页 blob 下载已桥接）；
+- **实时通道**：审批弹窗、实时事件走 WebSocket（`/api/remote.mux`），WebView 原生支持；
+- **固定签名**：CI 用仓库 Secret 里的固定 keystore 签名，升级直接覆盖安装。
 
 ## 构建（GitHub Actions 在线构建，本机零安装）
 
-1. Fork 本仓库（或自行推送一份），打开 **Actions** 页 → 手动运行 `Build APK` 工作流
-   （约 3~5 分钟），构建完成后在该次运行的 **Summary** 页下载 **dsh-mobile-apk** 工件里的
-   `app-release.apk`。
-2. APK 传到手机安装（允许"安装未知来源应用"）。
-3. （可选）`workflow_dispatch` 构建会自动发布到 Releases 页，方便分发。
+1. 打开本仓库 **Actions** → 手动运行 `Build APK` 工作流（约 3~5 分钟）；
+2. 构建完成后在该次运行的 **Summary** 页下载 `dsh-mobile-apk` 工件里的
+   `app-release.apk`（或到 Releases 页下载带版本号的包）；
+3. APK 传到手机安装（允许「安装未知来源应用」）。
+
+> 签名：`KEYSTORE_BASE64` / `KEYSTORE_PASS` 两个仓库 Secret 提供固定签名密钥
+> （PKCS12 格式，别名固定 `dsh`——自带 keystore 的话请用同名别名，或改工作流）；
+> 缺 Secret 时 CI 退回一次性临时签名——那种包只能全新安装，不能覆盖升级。
 
 ## 使用
 
 1. 手机上打开 App → 首次启动自动弹出设置；
-2. **服务器地址**填你自己的固定域名（如 `your-domain.de5.net`，自动发现模式），或完整地址
-   `https://xxx.trycloudflare.com/mobile`（**仅支持 https**，明文 http 会泄露密码）；
-   **用户名 / 密码**：你部署 mobile-remote 插件时配置的凭证——默认用户名为 `dsh`，
-   密码在服务器上 `~/.dsh/mobile-remote.auth`（自动生成）；也可在 `cordis.patch.yml`
-   的 `web-runtime` config 下显式配置 `user` / `password` 自定义（见 DEPLOY.md）；
-3. 保存即连接，之后打开 App 直接进入 DSH 聊天界面。
-4. 服务器未启动时 App 会显示"连接失败"——先在服务器电脑上运行
-   `server/tools/start-dsh.ps1`。
+2. 填四项：
+   - **家庭直连地址**：如 `https://192.168.1.10:3080`（你家服务器的内网地址，可留空）；
+   - **固定域名**：如 `your-domain.de5.net`（公网通道门牌，可留空）；
+   - **用户名 / 密码**：DSH 登录插件的账号密码；
+3. 保存即连接。在家走直连、出门走隧道，全自动。
 
-## 注意
+## 服务器端
 
-- 连接走 HTTPS 隧道；请勿把你的服务器密码提交到公开仓库；
-- **签名**：Fork 自行构建的 APK 每次构建签名不同（CI 每次生成新 keystore），
-  **升级需先卸载旧版**（会清除本地保存的地址/凭证，重装后重填一次）；
-  本仓库 Actions 手动运行（workflow_dispatch）会自动发布到 Releases，请以 Release 版为准；
-- DSH 预览版的远程限制：远程浏览器（隧道域名）下「插件配置卡片」「打开配置文件」按钮
-  默认不渲染（官方把远程 settings 降级为进程内模式）。`server/tools/start-dsh.ps1`
-  已内置自动检查/重打补丁（幂等，DSH 升级后只需重启脚本）；手动解除可运行
-  `server/tools/apply-isloopback-patch.ps1`（重启 `dsh web` 生效）。
-
-## 本地构建（可选）
-
-装 Android Studio 后直接 Open 本目录即可构建；或命令行：
-
-```bash
-gradle assembleDebug   # 输出 app/build/outputs/apk/debug/app-debug.apk
-```
+手机公网可达依赖服务器上的 **dsh-mobile-tunnel 三合一容器**
+（域名改写代理 + Cloudflare 快速隧道 + DNSHE 固定域名同步），部署见
+[DEPLOY.md](./DEPLOY.md)。认证不靠它——它只负责把隧道流量「改写地名」送过
+DSH 的准入栅栏；认证完全由 DSH 登录插件（账号密码 → 官方 Cookie）承担。
 
 ## 文档导航
 
 | 文档 | 内容 |
 |---|---|
-| [README.md](./README.md) | 项目总览 |
-| [DEPLOY.md](./DEPLOY.md) | 完整部署指南 |
-| [docs/QUICKSTART.md](./docs/QUICKSTART.md) | 极简部署教程 |
-| [docs/PWA-INSTALL.md](./docs/PWA-INSTALL.md) | 把 PWA 添加到主屏幕 |
-| [docs/BOUNDARIES.md](./docs/BOUNDARIES.md) | 使用边界与拓展方向 |
+| [DEPLOY.md](./DEPLOY.md) | 服务器端容器部署指南 |
+| [server/container/](./server/container/) | 三合一容器源码与说明 |
+| [docs/PWA-INSTALL.md](./docs/PWA-INSTALL.md) | 跨设备免安装方案（DSH 网页自带 PWA） |
+| [pwa/](./pwa/) | 旧 PWA 客户端（已归档，新体系下需改造才可用） |
 | [CHANGELOG.md](./CHANGELOG.md) | 更新日志 |
 | [LICENSE](./LICENSE) | MIT 许可证 |
 
-## 使用边界与拓展
+## 安全须知
 
-当前版本的局限、拓展方向、开发者说明，见：
-
-- [docs/BOUNDARIES.md](./docs/BOUNDARIES.md)
+- 连接全链路 HTTPS；自签证书的 SSL 放行**仅限**你配置的家庭直连地址这一处；
+- 公网入口的唯一锁是登录插件的账号密码——**请设强密码**；密码即边界；
+- DNSHE 的 API 密钥、登录凭据只存服务器 `.env` 与手机加密存储，不进任何 git 仓库；
+- 已知限制：系统下载管理器过不了自签证书的校验，**家庭直连通道**里直接的
+  http(s) 链接下载可能失败——网页内的 blob 下载通道（已桥接）与公网隧道通道
+  不受影响；
+- 免费快速隧道带宽有限，拉取超大会话会稍慢，属正常现象。

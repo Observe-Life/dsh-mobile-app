@@ -1,31 +1,31 @@
 # 更新日志
 
-## [2026-08-16] 当前版本
+## [2026-11-26] v2.0 —— 个人版大改（适配 DSH 0.2.2-rc.5）
 
 ### 新增
-- PWA 通用客户端
-  - 支持 iPhone / 鸿蒙 / 其他平台
-  - 支持裸域名自动发现隧道
-  - 支持深色 / 浅色切换
-  - 密码仅保存在页面内存中
-- 使用边界与拓展说明 `docs/BOUNDARIES.md`
-- PWA 添加到主屏幕教程 `docs/PWA-INSTALL.md`
-- 极简部署教程 `docs/QUICKSTART.md`
+- 双通道自动选：家庭 WiFi 直连优先，不通自动经固定域名 DoH 反查 Cloudflare 隧道
+- 自动登录：检测到 DSH 登录插件 `/login` 页面自动填表提交，凭据 Keystore 加密存储，
+  30 天 Cookie 过期无感重登
+- 文件上传：实现 WebView 文件选择桥接——拍照（FileProvider）/ 相册 / 文件
+- 文件下载：系统下载管理器 + 网页 blob 下载 JS 桥接，落盘「下载」目录
+- 服务器端三合一容器 `server/container/`：域名改写代理 + Cloudflare 快速隧道 +
+  DNSHE 固定域名同步（适配飞牛OS Docker 部署）
+- CI 固定签名：`KEYSTORE_BASE64` / `KEYSTORE_PASS` 仓库 Secret，升级可覆盖安装
 
-### 改进
-- Android 图标改为黑白风格（黑底 + 白气泡 + DSH 黑鲸鱼）
-- Android 顶部栏 / 状态栏黑白化
-- 设置弹窗隐私脱敏，不再预填私人信息
-- 公开仓库示例域名脱敏
-- CI 每次构建成功自动发布 GitHub Release
-- Release APK 使用带版本号文件名，避免下载缓存旧图标
+### 移除（适配新 DSH 认证体系）
+- Basic Auth 认证代理插件 `server/plugin/`（DSH 已自带登录认证，代理的密码边界
+  职能由登录插件承担；其域名改写职能由三合一容器的代理继承）
+- Windows 专用脚本 `server/tools/`（PowerShell 启动/看门狗/isLoopback 补丁——
+  服务器改用容器部署；isLoopback 补丁在新版已无需）
+- 移动排版 CSS 适配层 `mobile-inject.css`（当前 DSH 前端手机视口自适应，实测
+  无溢出，适配层 0 命中已失效）
+- 旧文档 `docs/QUICKSTART.md`、`docs/BOUNDARIES.md`（内容并入 README/DEPLOY）
 
-### 移除
-- 原生 iOS / 鸿蒙工程（改为 PWA 跨平台方案）
-- 旧的 HANDOFF / AGENT-START 文档（内容合并入 MAINTENANCE.md）
+### 归档
+- `pwa/` 通用客户端原样保留：旧认证体系专用，新体系下跨站 iframe Cookie 受限，
+  重新启用需改造；跨设备免安装现推荐直接用 DSH 网页自带的 PWA manifest
 
-### 修复
-- PWA 填裸域名 404 问题（自动发现隧道）
-- PWA Service Worker 旧缓存问题（导航优先网络）
-- PWA 泄露真实固定域名问题
-- 鸿蒙 ohpm 依赖不可用问题（已移除相关工程）
+## [2026-08-16] 旧版（原上游项目）
+
+- PWA 通用客户端、Android 壳应用、Basic Auth 代理插件、Windows 一键启动脚本，
+  详见原上游仓库说明。
