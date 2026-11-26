@@ -511,49 +511,40 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 通过 DoH（DNS over HTTPS）查固定域名的 CNAME/TXT，提取当前隧道域名。
-     *  多家服务商轮替：单一源（阿里）会间歇断流，谁通用谁。 */
+    /** 通过阿里 DoH 查固定域名的 CNAME/TXT，提取当前隧道域名（与原项目一致，仅此一源）。 */
     private String dohResolve(String host) {
-        String[][] providers = {
-                {"https://dns.alidns.com/resolve", "dns.alidns.com"},
-                {"https://doh.pub/dns-query", "doh.pub"},
-                {"https://doh.360.cn/resolve", "doh.360.cn"},
-                {"https://dns.google/resolve", "dns.google"},
-        };
-        for (String[] p : providers) {
-            try {
-                String q = Uri.encode(host);
-                URL u = new URL(p[0] + "?name=" + q + "&type=TXT");
-                HttpURLConnection c = (HttpURLConnection) u.openConnection();
-                c.setRequestMethod("GET");
-                c.setRequestProperty("Accept", "application/dns-json");
-                c.setConnectTimeout(4000);
-                c.setReadTimeout(4000);
-                int code = c.getResponseCode();
-                if (code != 200) continue;
-                InputStream in = c.getInputStream();
-                ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                byte[] buf = new byte[4096];
-                int n;
-                while ((n = in.read(buf)) != -1) bos.write(buf, 0, n);
-                in.close();
-                JSONObject j = new JSONObject(bos.toString(StandardCharsets.UTF_8.name()));
-                JSONArray ans = j.optJSONArray("Answer");
-                if (ans == null) continue;
-                for (int i = 0; i < ans.length(); i++) {
-                    JSONObject a = ans.optJSONObject(i);
-                    if (a == null) continue;
-                    int type = a.optInt("type", -1);
-                    String data = a.optString("data", "");
-                    if ((type == 5 || type == 16) && data.contains("trycloudflare.com")) {
-                        return data.replaceFirst("\\.$", "").trim();
-                    }
+        try {
+            String q = Uri.encode(host);
+            URL u = new URL("https://dns.alidns.com/resolve?name=" + q + "&type=TXT");
+            HttpURLConnection c = (HttpURLConnection) u.openConnection();
+            c.setRequestMethod("GET");
+            c.setRequestProperty("Accept", "application/dns-json");
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(8000);
+            int code = c.getResponseCode();
+            if (code != 200) return null;
+            InputStream in = c.getInputStream();
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) != -1) bos.write(buf, 0, n);
+            in.close();
+            JSONObject j = new JSONObject(bos.toString(StandardCharsets.UTF_8.name()));
+            JSONArray ans = j.optJSONArray("Answer");
+            if (ans == null) return null;
+            for (int i = 0; i < ans.length(); i++) {
+                JSONObject a = ans.optJSONObject(i);
+                if (a == null) continue;
+                int type = a.optInt("type", -1);
+                String data = a.optString("data", "");
+                if ((type == 5 || type == 16) && data.contains("trycloudflare.com")) {
+                    return data.replaceFirst("\\.$", "").trim();
                 }
-            } catch (Exception e) {
-                // 本源失败，换下一家
             }
+            return null;
+        } catch (Exception e) {
+            return null;
         }
-        return null;
     }
 
     private static String trimSlash(String u) {
