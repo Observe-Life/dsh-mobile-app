@@ -58,6 +58,14 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
 
+      # 诊断（临时）：确认密码在 GITHUB_ENV 往返后长度不变、keytool 能用同一密码开库
+      - name: Debug signing env
+        run: |
+          echo "KEYSTORE_PASS length: ${#KEYSTORE_PASS}"
+          echo "KEYSTORE_FILE: $KEYSTORE_FILE"
+          ls -la "$KEYSTORE_FILE"
+          keytool -list -keystore "$KEYSTORE_FILE" -storetype PKCS12 -storepass "$KEYSTORE_PASS" 2>&1 | head -4
+
       - name: Build release APK
         run: gradle assembleRelease
 
