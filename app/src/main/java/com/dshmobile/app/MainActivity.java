@@ -77,7 +77,7 @@ public class MainActivity extends Activity {
     private Uri cameraUri;
     private long lastConnectAt = 0L;
     private int autoLoginBudget = 3;
-    private boolean pinnedThisLoad = false;
+    private long lastPinRecordedAt = Long.MIN_VALUE / 2;
     private String activeTunnelHost = null;
 
     @Override
@@ -127,7 +127,6 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 connStatus.setText("连接中…");
-                pinnedThisLoad = false;
                 gateJavascriptBridge(url);
             }
 
@@ -295,8 +294,9 @@ public class MainActivity extends Activity {
         // 防止页面里指向外部的可疑链接把存的密码发给陌生站点
         if (!isTrustedPageOrigin(url)) return;
         // 首次接触（证书指纹刚记录，无法排除敌意局域网伪装）不自动提交凭据，
-        // 让用户手登一次；后续接触（指纹与首录一致）才自动提交。
-        if (pinnedThisLoad) return;
+        // 让用户手登一次；指纹录入满 60 秒后的后续接触才自动提交。
+        // 用时间窗口而非页面标记：登录前的 302 跳转会重置页面级标记，击穿防线。
+        if (SystemClock.elapsedRealtime() - lastPinRecordedAt < 60_000) return;
         // 纵深防御：自动登录有预算上限（防登录插件将来把失败也改成重定向导致的循环重提交）
         if (autoLoginBudget <= 0) return;
         String user = prefs.getString(KEY_USER, "dsh");
@@ -566,7 +566,7 @@ public class MainActivity extends Activity {
             String stored = prefs.getString(KEY_LAN_PIN, "");
             if (stored.isEmpty()) {
                 prefs.edit().putString(KEY_LAN_PIN, fp).apply();
-                pinnedThisLoad = true;
+                lastPinRecordedAt = SystemClock.elapsedRealtime();
                 return true;
             }
             return stored.equals(fp);
