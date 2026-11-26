@@ -47,6 +47,8 @@ jobs:
             # 备用路径：无 Secret 时用 keytool 现场生成（Java 原生格式，必定可读），
             # 并把 keystore 作为工件上传——一次性引导：取回工件设为 KEYSTORE_BASE64
             # 即固定签名。之后每次构建都用同一把，升级可覆盖安装。
+            # DSH_BOOTSTRAP 标记仅限本分支置位：有 Secret 的常规构建绝不上传密钥库
+            echo 'DSH_BOOTSTRAP=1' >> "$GITHUB_ENV"
             keytool -genkeypair -v \
               -keystore "$RUNNER_TEMP/dsh-release.keystore" \
               -alias dsh -keyalg RSA -keysize 2048 -validity 10000 \
@@ -61,9 +63,9 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
 
-      # 引导通道：备用分支生成的 keystore 上传为工件（取回后设为 KEYSTORE_BASE64 即固定）
+      # 引导通道：仅「无 Secret 的备用分支」上传 keystore 工件（常规构建绝不外传）
       - name: Upload keystore artifact
-        if: env.KEYSTORE_FILE != '' && env.KEYSTORE_BASE64 == ''
+        if: env.DSH_BOOTSTRAP == '1'
         uses: actions/upload-artifact@v7
         with:
           name: release-keystore
